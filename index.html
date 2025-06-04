@@ -543,8 +543,14 @@
             showPreview(tex, gridType === 'source' ? state.activeSourcePackName : (tex.fromPack || 'Customized'));
           });
           // Clean up Object URL when image is no longer needed or if it errors
-          img.addEventListener('load', () => { /* URL.revokeObjectURL(objectURL); // Consider implications */ }, { once: true });
-          img.addEventListener('error', () => { if (objectURL.startsWith("blob:")) URL.revokeObjectURL(objectURL); }, { once: true });
+          img.addEventListener('load', () => {
+            if (objectURL.startsWith('blob:')) {
+              URL.revokeObjectURL(objectURL);
+            }
+          }, { once: true });
+          img.addEventListener('error', () => {
+            if (objectURL.startsWith('blob:')) URL.revokeObjectURL(objectURL);
+          }, { once: true });
 
           gridElement.appendChild(img);
         });
