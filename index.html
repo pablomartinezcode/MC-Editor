@@ -136,6 +136,28 @@
         box-shadow: 0 0 8px rgba(40, 167, 69, 0.7);
       }
 
+      .thumb-wrapper {
+        position: relative;
+      }
+      .remove-thumb-btn {
+        position: absolute;
+        top: -6px;
+        right: -6px;
+        background: rgba(220,53,69,0.85);
+        color: #fff;
+        border: none;
+        border-radius: 50%;
+        width: 20px;
+        height: 20px;
+        font-size: 14px;
+        line-height: 18px;
+        cursor: pointer;
+        display: none;
+      }
+      .thumb-wrapper:hover .remove-thumb-btn {
+        display: block;
+      }
+
       #previewPane {
         position: fixed;
         right: var(--padding);
@@ -215,7 +237,7 @@
 
     <main id="mainContentArea">
       <div id="outputColumn" class="column">
-        <h2>Your Custom Pack (Output)</h2>
+        <h2 title="Hover a thumbnail and click \u00d7 to remove it">Your Custom Pack (Output)</h2>
         <div class="texture-grid-container">
           <div id="outputGrid" class="texture-grid"></div>
         </div>
@@ -524,9 +546,9 @@
         }
 
         filteredTextures.forEach(tex => {
-          const img = document.createElement("img");
           const objectURL = URL.createObjectURL(tex.blob);
-          img.src = objectURL; 
+          const img = document.createElement("img");
+          img.src = objectURL;
           img.className = "texture-thumb";
           img.dataset.simplifiedName = tex.simplifiedName;
           img.dataset.baseSimplifiedName = tex.baseSimplifiedName;
@@ -537,8 +559,11 @@
           }
           titleText += `\nSource Pack: ${tex.fromPack || (gridType === 'output' ? 'Customized' : 'N/A')}`;
           titleText += `\nOriginal Path: ${tex.name}`;
+          if (gridType === 'output') {
+            titleText += `\nClick \u00d7 to remove from output`;
+          }
           img.title = titleText;
-          
+
           img.addEventListener("click", () => {
             showPreview(tex, gridType === 'source' ? state.activeSourcePackName : (tex.fromPack || 'Customized'));
           });
@@ -552,7 +577,25 @@
             if (objectURL.startsWith('blob:')) URL.revokeObjectURL(objectURL);
           }, { once: true });
 
-          gridElement.appendChild(img);
+          let wrapper = img;
+          if (gridType === 'output') {
+            const div = document.createElement('div');
+            div.className = 'thumb-wrapper';
+            const btn = document.createElement('button');
+            btn.className = 'remove-thumb-btn';
+            btn.textContent = '\u00d7';
+            btn.title = 'Remove this texture from output';
+            btn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              delete state.outputPackTextures[tex.baseSimplifiedName];
+              renderOutputGrid();
+            });
+            div.appendChild(img);
+            div.appendChild(btn);
+            wrapper = div;
+          }
+
+          gridElement.appendChild(wrapper);
         });
       }
 
