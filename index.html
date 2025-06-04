@@ -1,0 +1,729 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Minecraft Texture Pack Combiner</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <style>
+      :root {
+        font-family: "Inter", system-ui, sans-serif;
+        --topbar-height: 50px;
+        --preview-pane-width: 280px;
+        --column-gap: 1rem;
+        --padding: 1rem;
+      }
+
+      body {
+        margin: 0;
+        background-color: #f0f0f0;
+        color: #333;
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+        overflow: hidden;
+      }
+
+      #topbar {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0.5rem var(--padding);
+        background: #333;
+        color: #fff;
+        height: var(--topbar-height);
+        flex-shrink: 0;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        z-index: 10;
+      }
+
+      #topbar label,
+      #topbar button {
+        cursor: pointer;
+        padding: 0.5rem 0.75rem;
+        border-radius: 6px;
+        background-color: #555;
+        border: 1px solid #666;
+        color: #fff;
+        transition: background-color 0.2s ease;
+        font-size: 0.9rem;
+      }
+      #topbar label:hover,
+      #topbar button:hover {
+        background-color: #6E6E6E;
+      }
+
+      #topbar select,
+      #topbar input[type="search"] {
+        padding: 0.5rem 0.75rem;
+        border-radius: 6px;
+        border: 1px solid #777;
+        background-color: #444;
+        color: #fff;
+        font-size: 0.9rem;
+      }
+      #topbar input[type="search"] {
+        flex-grow: 1;
+        max-width: 250px; /* Adjusted width */
+      }
+
+      #mainContentArea {
+        display: flex;
+        flex-grow: 1;
+        gap: var(--column-gap);
+        padding: var(--padding);
+        padding-top: 0; 
+        overflow: hidden;
+        height: calc(100vh - var(--topbar-height));
+      }
+
+      .column {
+        flex: 1;
+        background-color: #fff;
+        border-radius: 8px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+
+      .column h2 {
+        font-size: 1.1rem;
+        padding: 0.75rem var(--padding);
+        margin: 0;
+        background-color: #e9e9e9;
+        color: #333;
+        border-bottom: 1px solid #ddd;
+        border-top-left-radius: 8px;
+        border-top-right-radius: 8px;
+        text-align: center;
+      }
+
+      .texture-grid-container {
+        overflow-y: auto;
+        flex-grow: 1;
+        padding: var(--padding);
+      }
+
+      .texture-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+        gap: 8px;
+      }
+
+      .texture-thumb {
+        width: 100%;
+        aspect-ratio: 1 / 1;
+        object-fit: contain;
+        border: 2px solid #ddd;
+        border-radius: 4px;
+        cursor: pointer;
+        image-rendering: pixelated;
+        transition: border-color 0.2s ease, transform 0.1s ease;
+        background-color: #f9f9f9;
+      }
+      .texture-thumb:hover {
+        border-color: #999;
+        transform: scale(1.05);
+      }
+      .texture-thumb.selected {
+        border-color: #007bff;
+        box-shadow: 0 0 5px rgba(0,123,255,0.5);
+      }
+      .texture-thumb-highlight {
+        border-color: #28a745 !important;
+        transform: scale(1.05);
+        box-shadow: 0 0 8px rgba(40, 167, 69, 0.7);
+      }
+
+      #previewPane {
+        position: fixed;
+        right: var(--padding);
+        top: calc(var(--topbar-height) + var(--padding));
+        width: var(--preview-pane-width);
+        max-height: calc(100vh - var(--topbar-height) - 2 * var(--padding) - 20px);
+        background: #fff;
+        border: 1px solid #ccc;
+        border-radius: 8px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: flex-start;
+        padding: 0.75rem;
+        z-index: 5;
+      }
+      #previewPane h3 {
+        margin: 0 0 0.5rem 0;
+        font-size: 1rem;
+        color: #333;
+        text-align: center;
+        width: 100%;
+        word-break: break-all;
+      }
+      #previewCanvas {
+        max-width: 100%;
+        max-height: calc(var(--preview-pane-width) - 2rem);
+        border-radius: 4px;
+        border: 1px solid #eee;
+      }
+      #useTextureButton {
+        margin-top: 0.75rem;
+        padding: 0.5rem 1rem;
+        background-color: #28a745;
+        color: white;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 0.9rem;
+        width: 100%;
+      }
+      #useTextureButton:hover {
+        background-color: #218838;
+      }
+      #useTextureButton:disabled {
+        background-color: #ccc;
+        cursor: not-allowed;
+      }
+
+      .hidden {
+        display: none !important;
+      }
+    </style>
+  </head>
+  <body>
+    <nav id="topbar">
+      <label>
+        <span>Upload Base Pack</span>
+        <input type="file" id="basePackInput" accept=".zip" class="hidden" />
+      </label>
+      <label>
+        <span>Upload Source Pack(s)</span>
+        <input type="file" id="sourcePacksInput" multiple accept=".zip" class="hidden" />
+      </label>
+
+      <select id="categorySelect" title="Filter by texture category"></select>
+      <input type="search" id="searchInput" placeholder="Search textures…" title="Search by texture name/path" />
+
+      <select id="sourcePackSelect" title="Select a loaded pack to view its textures"></select>
+      
+      <select id="swapCategorySelect" title="Select category for bulk swap"></select>
+      <button id="swapButton" title="Swap all textures of selected category from source to output">Swap Category</button>
+      
+      <button id="downloadButton" title="Download your custom pack">Download Pack</button>
+    </nav>
+
+    <main id="mainContentArea">
+      <div id="outputColumn" class="column">
+        <h2>Your Custom Pack (Output)</h2>
+        <div class="texture-grid-container">
+          <div id="outputGrid" class="texture-grid"></div>
+        </div>
+      </div>
+
+      <div id="sourceColumn" class="column">
+        <h2>Source Pack Textures</h2>
+        <div class="texture-grid-container">
+          <div id="sourceGrid" class="texture-grid"></div>
+        </div>
+      </div>
+    </main>
+
+    <div id="previewPane">
+      <h3 id="previewTextureName">Select a Texture</h3>
+      <canvas id="previewCanvas" width="200" height="200"></canvas>
+      <button id="useTextureButton" disabled>Use this Texture</button>
+    </div>
+
+    <script>
+      const state = {
+        outputPackTextures: {}, // Key: baseSimplifiedName, Value: texture object
+        sourcePacksData: {},    // Key: packName, Value: { name, zip, textures: [], isDefault (optional) }
+        activeSourcePackName: null,
+        currentPreviewTexture: null 
+      };
+
+      const basePackInput = document.getElementById("basePackInput");
+      const sourcePacksInput = document.getElementById("sourcePacksInput"); // Changed ID
+      const categorySelect = document.getElementById("categorySelect");
+      const searchInput = document.getElementById("searchInput");
+      const sourcePackSelect = document.getElementById("sourcePackSelect");
+      const swapCategorySelect = document.getElementById("swapCategorySelect");
+      const swapButton = document.getElementById("swapButton");
+      const downloadButton = document.getElementById("downloadButton"); 
+      const outputGrid = document.getElementById("outputGrid");
+      const sourceGrid = document.getElementById("sourceGrid");
+      const previewTextureName = document.getElementById("previewTextureName");
+      const previewCanvas = document.getElementById("previewCanvas");
+      const previewCtx = previewCanvas.getContext("2d");
+      const useTextureButton = document.getElementById("useTextureButton");
+
+      const predefinedCategories = [
+        "block", "item", "entity", "environment", "effect",
+        "gui", "font", "misc", "map", "mob_effect",
+        "painting", "particle", "trims", "colormap"
+      ];
+
+      function populateCategoryDropdowns() {
+        const allCategoriesOption = '<option value="">All Categories</option>';
+        const categoryOptions = predefinedCategories.map(c => `<option value="${c}">${c}</option>`).join("");
+        categorySelect.innerHTML = allCategoriesOption + categoryOptions;
+        swapCategorySelect.innerHTML = categoryOptions; 
+        if (predefinedCategories.length > 0) {
+            swapCategorySelect.value = predefinedCategories[0]; 
+        }
+      }
+
+      document.addEventListener('DOMContentLoaded', () => {
+        populateCategoryDropdowns();
+        updateSourcePackSelect(); 
+        renderOutputGrid();
+        renderSourceGrid();
+        showTemporaryMessage("Tip: Start by uploading a 'Base Pack' to build upon.", "info");
+      });
+
+      basePackInput.addEventListener("change", async (e) => {
+        if (e.target.files && e.target.files.length > 0) {
+            await handleBasePackUpload(e.target.files[0]);
+        }
+        e.target.value = null; 
+      });
+
+      sourcePacksInput.addEventListener("change", async (e) => { // Changed listener
+        await handleSourcePacksUpload(e.target.files);
+        e.target.value = null; 
+      });
+
+      searchInput.addEventListener("input", () => { renderOutputGrid(); renderSourceGrid(); });
+      categorySelect.addEventListener("change", () => { renderOutputGrid(); renderSourceGrid(); });
+      
+      sourcePackSelect.addEventListener("change", (e) => {
+        state.activeSourcePackName = e.target.value;
+        renderSourceGrid();
+        clearPreview(); 
+      });
+
+      useTextureButton.addEventListener("click", () => {
+        if (state.currentPreviewTexture && state.currentPreviewTexture.texture) {
+          addTextureToOutput(state.currentPreviewTexture.texture);
+        }
+      });
+
+      swapButton.addEventListener("click", handleSwapCategory);
+      downloadButton.addEventListener("click", handleDownloadPack);
+
+      /**
+       * Processes a single ZIP file for the base pack (Output Pack).
+       */
+      async function handleBasePackUpload(file) {
+        if (!file || !file.name.endsWith(".zip")) {
+            showTemporaryMessage("Invalid base pack file. Please upload a .zip file.", "error");
+            return;
+        }
+        document.body.style.cursor = 'wait';
+        showTemporaryMessage(`Loading base pack: ${file.name}...`, "info");
+
+        try {
+            const packName = file.name;
+            // Clear existing output textures and remove any previous base pack from sourcePacksData
+            state.outputPackTextures = {};
+            Object.keys(state.sourcePacksData).forEach(pName => {
+                if (state.sourcePacksData[pName].isBasePack) {
+                    delete state.sourcePacksData[pName];
+                }
+            });
+
+            const loadedPackData = await processZipFile(file, packName);
+            if (!loadedPackData) throw new Error("Failed to process base pack ZIP.");
+
+            loadedPackData.isBasePack = true; // Mark this as the base pack
+            state.sourcePacksData[packName] = loadedPackData;
+            
+            loadedPackData.textures.forEach(tex => {
+                state.outputPackTextures[tex.baseSimplifiedName] = { ...tex }; 
+            });
+            
+            console.log(`Loaded base pack: ${packName} with ${loadedPackData.textures.length} textures into output.`);
+            showTemporaryMessage(`Base pack '${packName}' loaded successfully!`, "success");
+
+            // If no source pack is active or if the active one was the old base, set this as active
+            if (!state.activeSourcePackName || !state.sourcePacksData[state.activeSourcePackName]) {
+                state.activeSourcePackName = packName;
+            }
+            
+        } catch (error) {
+            console.error("Error loading base pack:", file.name, error);
+            showTemporaryMessage(`Failed to load base pack: ${file.name}. ${error.message}`, 'error');
+        } finally {
+            updateSourcePackSelect(); // Update dropdown to include the new base pack
+            renderOutputGrid();
+            renderSourceGrid();     // Render source if it became active
+            document.body.style.cursor = 'default';
+        }
+      }
+      
+      /**
+       * Processes multiple ZIP files for source packs.
+       */
+      async function handleSourcePacksUpload(fileList) {
+        if (!fileList || fileList.length === 0) return;
+        document.body.style.cursor = 'wait';
+        let newPacksLoadedCount = 0;
+
+        for (const file of fileList) {
+          if (file.name.endsWith(".zip")) {
+            showTemporaryMessage(`Loading source pack: ${file.name}...`, "info");
+            try {
+              const packName = file.name;
+              if (state.sourcePacksData[packName]) {
+                  showTemporaryMessage(`Pack '${packName}' is already loaded. Skipping.`, "warning");
+                  continue;
+              }
+              const loadedPackData = await processZipFile(file, packName);
+              if (!loadedPackData) throw new Error("Failed to process source pack ZIP.");
+              
+              state.sourcePacksData[packName] = loadedPackData;
+              newPacksLoadedCount++;
+              console.log(`Loaded source pack: ${packName} with ${loadedPackData.textures.length} textures.`);
+              showTemporaryMessage(`Source pack '${packName}' loaded.`, "success");
+
+            } catch (error) {
+              console.error("Error loading source pack:", file.name, error);
+              showTemporaryMessage(`Failed to load source pack: ${file.name}. ${error.message}`, 'error');
+            }
+          }
+        }
+        
+        if (newPacksLoadedCount > 0) {
+            updateSourcePackSelect();
+            // If no source pack was active, make the first newly loaded one active
+            if (!state.activeSourcePackName && Object.keys(state.sourcePacksData).length > 0) {
+                 // Prioritize non-base packs if available, otherwise first pack
+                const firstNonBasePack = Object.keys(state.sourcePacksData).find(pName => !state.sourcePacksData[pName].isBasePack);
+                state.activeSourcePackName = firstNonBasePack || Object.keys(state.sourcePacksData)[0];
+            }
+            renderSourceGrid();
+        }
+        document.body.style.cursor = 'default';
+      }
+
+      /**
+       * Helper function to process a single zip file and extract texture data.
+       * @param {File} file The zip file object.
+       * @param {string} packName The name of the pack.
+       * @returns {Promise<Object|null>} Pack data or null on failure.
+       */
+      async function processZipFile(file, packName) {
+        const buf = await file.arrayBuffer();
+        const zip = await JSZip.loadAsync(buf);
+        
+        const packData = {
+            name: packName,
+            zip: null, // Not storing full zip object in state to save memory, can be re-evaluated
+            textures: [],
+        };
+
+        const texturePromises = [];
+        zip.forEach((relativePath, zipEntry) => {
+            if (!zipEntry.dir && relativePath.includes("textures/") && relativePath.toLowerCase().endsWith(".png")) {
+                let simplifiedNameParts = relativePath.split("textures/");
+                if (simplifiedNameParts.length > 1) {
+                    let simplifiedName = simplifiedNameParts[1];
+                    let category = simplifiedName.split("/")[0]; 
+                    const baseSimplifiedName = simplifiedName.replace(/(_\d+)(\.png)$/i, '$2');
+
+                    if (!predefinedCategories.includes(category) && category !== 'colormap') {
+                        const deeperParts = relativePath.split('/');
+                        const texturesIndex = deeperParts.indexOf('textures');
+                        if (texturesIndex !== -1 && texturesIndex + 1 < deeperParts.length) {
+                            const potentialCategory = deeperParts[texturesIndex + 1];
+                            if (predefinedCategories.includes(potentialCategory)) category = potentialCategory;
+                        }
+                    }
+                    texturePromises.push(
+                        zipEntry.async("blob").then(blob => {
+                            packData.textures.push({
+                                name: relativePath, blob, category, simplifiedName, baseSimplifiedName, fromPack: packName
+                            });
+                        }).catch(err => console.error(`Error processing ${relativePath} in ${packName}:`, err))
+                    );
+                }
+            }
+        });
+        await Promise.all(texturePromises);
+        return packData;
+      }
+      
+      function updateSourcePackSelect() {
+        const packNames = Object.keys(state.sourcePacksData);
+        const selectOptions = packNames.map(name => {
+            const isBase = state.sourcePacksData[name].isBasePack ? " (Base)" : "";
+            return `<option value="${name}">${name}${isBase}</option>`;
+        }).join('');
+
+        if (packNames.length === 0) {
+          sourcePackSelect.innerHTML = "<option value=''>No packs loaded</option>";
+          state.activeSourcePackName = null;
+        } else {
+          sourcePackSelect.innerHTML = selectOptions;
+          if (state.activeSourcePackName && packNames.includes(state.activeSourcePackName)) {
+            sourcePackSelect.value = state.activeSourcePackName;
+          } else if (packNames.length > 0) {
+            // Default to the first non-base pack if available, otherwise the first pack overall
+            const firstNonBase = packNames.find(pName => !state.sourcePacksData[pName].isBasePack);
+            state.activeSourcePackName = firstNonBase || packNames[0];
+            sourcePackSelect.value = state.activeSourcePackName;
+          } else {
+            state.activeSourcePackName = null; // No packs, so no active one
+          }
+        }
+        renderSourceGrid(); 
+      }
+
+      function renderOutputGrid() {
+        renderGrid(outputGrid, Object.values(state.outputPackTextures), 'output');
+      }
+
+      function renderSourceGrid() {
+        if (state.activeSourcePackName && state.sourcePacksData[state.activeSourcePackName]) {
+          renderGrid(sourceGrid, state.sourcePacksData[state.activeSourcePackName].textures, 'source');
+        } else {
+          sourceGrid.innerHTML = "<p style='padding:1em; text-align:center;'>Select or upload a source pack to view its textures.</p>";
+        }
+      }
+      
+      function renderGrid(gridElement, texturesToRender, gridType) {
+        const term = searchInput.value.toLowerCase();
+        const cat = categorySelect.value;
+        gridElement.innerHTML = ""; 
+
+        const filteredTextures = texturesToRender.filter(tex => {
+          if (!tex || !tex.simplifiedName || !tex.category || !tex.baseSimplifiedName) return false; 
+          const nameMatch = !term || 
+                            tex.simplifiedName.toLowerCase().includes(term) || 
+                            tex.baseSimplifiedName.toLowerCase().includes(term) ||
+                            tex.name.toLowerCase().includes(term);
+          const categoryMatch = !cat || tex.category === cat;
+          return nameMatch && categoryMatch;
+        });
+
+        filteredTextures.sort((a,b) => {
+            if (a.baseSimplifiedName.localeCompare(b.baseSimplifiedName) !== 0) {
+                return a.baseSimplifiedName.localeCompare(b.baseSimplifiedName);
+            }
+            return a.simplifiedName.localeCompare(b.simplifiedName);
+        });
+
+        if (filteredTextures.length === 0 && gridType === 'output' && Object.keys(state.outputPackTextures).length === 0) {
+             gridElement.innerHTML = "<p style='padding:1em; text-align:center;'>Upload a 'Base Pack' to get started.</p>";
+             return;
+        }
+        if (filteredTextures.length === 0) {
+            gridElement.innerHTML = "<p style='padding:1em; text-align:center;'>No textures match your filters.</p>";
+            return;
+        }
+
+        filteredTextures.forEach(tex => {
+          const img = document.createElement("img");
+          const objectURL = URL.createObjectURL(tex.blob);
+          img.src = objectURL; 
+          img.className = "texture-thumb";
+          img.dataset.simplifiedName = tex.simplifiedName;
+          img.dataset.baseSimplifiedName = tex.baseSimplifiedName;
+
+          let titleText = `Displaying: ${tex.simplifiedName}`;
+          if (tex.simplifiedName !== tex.baseSimplifiedName) {
+            titleText += `\n(Variant of: ${tex.baseSimplifiedName})`;
+          }
+          titleText += `\nSource Pack: ${tex.fromPack || (gridType === 'output' ? 'Customized' : 'N/A')}`;
+          titleText += `\nOriginal Path: ${tex.name}`;
+          img.title = titleText;
+          
+          img.addEventListener("click", () => {
+            showPreview(tex, gridType === 'source' ? state.activeSourcePackName : (tex.fromPack || 'Customized'));
+          });
+          // Clean up Object URL when image is no longer needed or if it errors
+          img.addEventListener('load', () => { /* URL.revokeObjectURL(objectURL); // Consider implications */ }, { once: true });
+          img.addEventListener('error', () => { if (objectURL.startsWith("blob:")) URL.revokeObjectURL(objectURL); }, { once: true });
+
+          gridElement.appendChild(img);
+        });
+      }
+
+      function showPreview(texture, packNameContext) {
+        state.currentPreviewTexture = { texture, packName: packNameContext }; 
+        let previewTitle = `Preview: ${texture.simplifiedName}`;
+        if (texture.simplifiedName !== texture.baseSimplifiedName) {
+            previewTitle += ` (for ${texture.baseSimplifiedName})`;
+        }
+        previewTextureName.textContent = previewTitle;
+
+        const img = new Image();
+        const objectURL = URL.createObjectURL(texture.blob);
+        img.onload = () => {
+          previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+          const hRatio = previewCanvas.width / img.width;
+          const vRatio = previewCanvas.height / img.height;
+          const ratio = Math.min(hRatio, vRatio, 1); 
+          const drawWidth = img.width * ratio;
+          const drawHeight = img.height * ratio;
+          const xOffset = (previewCanvas.width - drawWidth) / 2;
+          const yOffset = (previewCanvas.height - drawHeight) / 2;
+          previewCtx.drawImage(img, xOffset, yOffset, drawWidth, drawHeight);
+          URL.revokeObjectURL(objectURL); 
+        };
+        img.onerror = () => {
+            previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+            previewCtx.fillText("Error loading preview.", 10, 20);
+            if (objectURL.startsWith("blob:")) URL.revokeObjectURL(objectURL); 
+        }
+        img.src = objectURL;
+        useTextureButton.disabled = false; 
+      }
+      
+      function clearPreview() {
+        state.currentPreviewTexture = null;
+        previewTextureName.textContent = "Select a Texture";
+        previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+        useTextureButton.disabled = true;
+      }
+
+      function addTextureToOutput(textureToAdd) {
+        if (!textureToAdd || !textureToAdd.baseSimplifiedName) {
+            console.error("Invalid texture object passed to addTextureToOutput:", textureToAdd);
+            return;
+        }
+        state.outputPackTextures[textureToAdd.baseSimplifiedName] = { ...textureToAdd };
+        console.log(`Texture for base '${textureToAdd.baseSimplifiedName}' in output pack updated with '${textureToAdd.simplifiedName}' from ${textureToAdd.fromPack}.`);
+        renderOutputGrid(); 
+        clearPreview(); 
+        
+        requestAnimationFrame(() => {
+            const outputThumb = outputGrid.querySelector(`.texture-thumb[data-base-simplified-name="${textureToAdd.baseSimplifiedName}"]`);
+            if(outputThumb) {
+                outputThumb.classList.add('texture-thumb-highlight');
+                setTimeout(() => {
+                    outputThumb.classList.remove('texture-thumb-highlight');
+                }, 1200); 
+            }
+        });
+      }
+
+      function handleSwapCategory() {
+        const categoryToSwap = swapCategorySelect.value;
+        const sourcePackNameForSwap = state.activeSourcePackName;
+
+        if (!categoryToSwap) {
+          showTemporaryMessage("Please select a category to swap.", "warning");
+          return;
+        }
+        if (!sourcePackNameForSwap || !state.sourcePacksData[sourcePackNameForSwap]) {
+          showTemporaryMessage("Please select a valid source pack to swap from.", "warning");
+          return;
+        }
+        if (state.sourcePacksData[sourcePackNameForSwap].isBasePack && Object.keys(state.sourcePacksData).length > 1) {
+            const otherSourcePacks = Object.keys(state.sourcePacksData).filter(pName => pName !== sourcePackNameForSwap && !state.sourcePacksData[pName].isBasePack);
+            if (otherSourcePacks.length === 0) {
+                 showTemporaryMessage("Cannot swap from the base pack if it's the only source pack. Upload another source pack.", "warning");
+                 return;
+            }
+            // If swapping from base pack, and other source packs exist, it's fine.
+        }
+
+
+        const sourcePack = state.sourcePacksData[sourcePackNameForSwap];
+        let swappedCount = 0;
+        
+        // Iterate through textures of the selected category in the SOURCE pack
+        sourcePack.textures.forEach(tex => {
+          if (tex.category === categoryToSwap) {
+            // Add or replace this texture in the OUTPUT pack, using its baseSimplifiedName as the key
+            state.outputPackTextures[tex.baseSimplifiedName] = { ...tex }; 
+            swappedCount++;
+          }
+        });
+
+        if (swappedCount > 0) {
+          renderOutputGrid();
+          showTemporaryMessage(`Swapped ${swappedCount} textures for category '${categoryToSwap}' from pack '${sourcePackNameForSwap}' into your custom pack.`, "success");
+        } else {
+          showTemporaryMessage(`No textures found for category '${categoryToSwap}' in the source pack '${sourcePackNameForSwap}'. Nothing was changed in your custom pack.`, "info");
+        }
+      }
+      
+      async function handleDownloadPack() {
+        if (Object.keys(state.outputPackTextures).length === 0) {
+            showTemporaryMessage("Your custom pack is empty. Add some textures first!", "warning");
+            return;
+        }
+
+        const newZip = new JSZip();
+        const packFormat = 15; 
+        const packDescription = `Custom Texture Pack - Created ${new Date().toLocaleDateString()}`;
+        const packMetaContent = { pack: { pack_format: packFormat, description: packDescription } };
+        newZip.file("pack.mcmeta", JSON.stringify(packMetaContent, null, 2));
+        const defaultNamespace = "minecraft"; 
+
+        for (const baseNameKey in state.outputPackTextures) {
+            const textureData = state.outputPackTextures[baseNameKey];
+            let currentNamespace = defaultNamespace;
+            if (textureData.name && textureData.name.startsWith("assets/")) {
+                const parts = textureData.name.split('/');
+                if (parts.length > 1) currentNamespace = parts[1]; 
+            }
+            const fullPathInZip = `assets/${currentNamespace}/textures/${baseNameKey}`;
+            newZip.file(fullPathInZip, textureData.blob);
+        }
+
+        try {
+            document.body.style.cursor = 'wait';
+            const zipBlob = await newZip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 9 } });
+            const downloadLink = document.createElement('a');
+            downloadLink.href = URL.createObjectURL(zipBlob);
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            downloadLink.download = `MyCustomPack_${timestamp}.zip`;
+            document.body.appendChild(downloadLink);
+            downloadLink.click();
+            document.body.removeChild(downloadLink);
+            URL.revokeObjectURL(downloadLink.href); 
+            document.body.style.cursor = 'default';
+            showTemporaryMessage("Pack downloaded successfully!", "success");
+        } catch (error) {
+            console.error("Error generating zip:", error);
+            showTemporaryMessage("Failed to generate the pack. See console for details.", "error");
+            document.body.style.cursor = 'default';
+        }
+      }
+
+      function showTemporaryMessage(message, type = 'info') {
+        console.log(`[${type.toUpperCase()}] ${message}`);
+        const messageDiv = document.createElement('div');
+        messageDiv.style.position = 'fixed';
+        messageDiv.style.bottom = '20px';
+        messageDiv.style.left = '50%'; // Center horizontally
+        messageDiv.style.transform = 'translateX(-50%)'; // Adjust for centering
+        messageDiv.style.padding = '12px 25px'; // Increased padding
+        messageDiv.style.borderRadius = '8px'; // More rounded
+        messageDiv.style.color = 'white';
+        messageDiv.style.zIndex = '1000';
+        messageDiv.style.fontSize = '0.95rem';
+        messageDiv.style.boxShadow = '0 4px 15px rgba(0,0,0,0.2)'; // Softer shadow
+        messageDiv.textContent = message;
+        
+        switch (type) {
+            case 'success': messageDiv.style.backgroundColor = '#28a745'; break;
+            case 'error':   messageDiv.style.backgroundColor = '#dc3545'; break;
+            case 'warning': messageDiv.style.backgroundColor = '#ffc107'; messageDiv.style.color = '#333'; break; // Darker text for warning
+            default:        messageDiv.style.backgroundColor = '#17a2b8'; break; // info
+        }
+        
+        document.body.appendChild(messageDiv);
+        setTimeout(() => {
+            messageDiv.style.opacity = '0';
+            messageDiv.style.transition = 'opacity 0.5s ease';
+            setTimeout(() => messageDiv.remove(), 500); // Remove after fade out
+        }, 3500); // Display for 3.5 seconds
+      }
+    </script>
+  </body>
+</html>
